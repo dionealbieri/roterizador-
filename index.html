@@ -59,35 +59,55 @@ body{display:flex;flex-direction:column}
 #map{flex:1;background:#f2f2f2}
 
 /* ── MOBILE layout: map top, panel bottom ── */
+/* ── MOBILE LAYOUT ── */
+#map-wrap{flex:1;position:relative;overflow:hidden;touch-action:pan-x pan-y pinch-zoom}
+#map{width:100%;height:100%;position:absolute;inset:0}
+
 @media(max-width:768px){
-  .main{flex-direction:column}
-  #map{
-    flex:none;
-    height:52vh;
-    min-height:52vh;
-    width:100%;
+  .main{flex-direction:column!important}
+  #map-wrap{
+    flex:none!important;
+    width:100%!important;
+    height:52dvh!important;
+    min-height:52dvh!important;
+    max-height:52dvh!important;
   }
   .panel{
-    width:100%;min-width:0;border-right:none;border-top:1px solid var(--border);
-    flex:1;overflow:hidden;
+    width:100%!important;min-width:0!important;
+    flex:1!important;border-right:none;
+    border-top:1px solid var(--border);overflow:hidden;
   }
   .pscroll{padding:12px 14px 80px}
-  /* hide drag pill on mobile since panel is always visible */
   .drag{display:none}
-  /* adjust nav hud position */
   .nav-hud{top:8px;left:8px;right:8px;transform:none;min-width:0;max-width:100%}
-  /* gps bar inside map area */
-  .gps-bar{bottom:auto;top:calc(52vh - 44px);left:8px;max-width:calc(100% - 56px)}
-  /* fab follow inside map */
-  .fab-follow{bottom:auto;top:calc(52vh - 50px);right:8px}
-  /* radar alert */
-  .radar-alert{top:auto;bottom:calc(48vh + 8px)}
+  .gps-bar{bottom:auto;top:calc(52dvh - 48px);left:8px;max-width:calc(100% - 64px)}
+  .fab-follow{bottom:auto;top:calc(52dvh - 54px);right:8px}
+  .radar-alert{top:auto;bottom:calc(48dvh + 8px)}
+  .btn-reroute{bottom:auto;top:calc(52dvh - 60px)!important}
 }
 @media(max-width:480px){
-  #map{height:45vh;min-height:45vh}
-  .gps-bar{top:calc(45vh - 44px)}
-  .fab-follow{top:calc(45vh - 50px)}
-  .radar-alert{bottom:calc(55vh + 8px)}
+  #map-wrap{height:45dvh!important;min-height:45dvh!important;max-height:45dvh!important}
+  .gps-bar{top:calc(45dvh - 48px)}
+  .fab-follow{top:calc(45dvh - 54px)}
+  .radar-alert{bottom:calc(55dvh + 8px)}
+  .btn-reroute{top:calc(45dvh - 60px)!important}
+}
+
+/* ── MOBILE NAVIGATION: map fullscreen ── */
+@media(max-width:768px){
+  body.navigating{overflow:hidden}
+  body.navigating .main{flex-direction:column!important}
+  body.navigating #map-wrap{
+    position:fixed!important;inset:0!important;
+    height:100dvh!important;max-height:none!important;
+    width:100%!important;z-index:100!important;
+  }
+  body.navigating .panel{display:none!important}
+  body.navigating .hdr{display:none!important}
+  body.navigating #nav-back-btn{display:flex!important}
+  body.navigating .gps-bar{top:auto!important;bottom:80px!important}
+  body.navigating .fab-follow{top:auto!important;bottom:140px!important}
+  body.navigating #speedometer{top:auto!important;bottom:80px!important;right:8px!important}
 }
 
 /* PANEL elements */
