@@ -670,9 +670,16 @@ function toggleView(){
   var vig=document.getElementById('car-vignette');
 
   if(carView){
-    // Vista dentro do carro: usar API nativa do Google Maps (tilt + heading)
-    map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
-    map.setOptions({styles:darkStyles});
+    // Vista dentro do carro com tilt 3D real
+    // iOS Safari só suporta tilt em HYBRID; Android/Desktop suporta em ROADMAP
+    var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+    if(isIOS){
+      map.setMapTypeId(google.maps.MapTypeId.HYBRID);
+      map.setOptions({styles:null});
+    }else{
+      map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
+      map.setOptions({styles:darkStyles});
+    }
     mapEl.style.transform='none';
     mapEl.style.transition='none';
     if(vig)vig.style.display='block';
@@ -682,16 +689,16 @@ function toggleView(){
       if(lastHdg)map.setHeading(lastHdg);
       else map.setHeading(0);
       if(lastPos&&following)map.panTo(lastPos);
-    },200);
+    },300);
     btn.textContent='🛰️';btn.classList.add('on');
-    toast('Vista dentro do carro ativada');
+    toast('Vista 3D dentro do carro ✅');
     speak('Vista dentro do carro');
   }else{
     // Vista aérea: voltar ao normal
     map.setTilt(0);
     map.setHeading(0);
     map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
-    map.setOptions({styles:darkStyles});
+    map.setOptions({styles:/iPad|iPhone|iPod/.test(navigator.userAgent)?null:darkStyles});
     mapEl.style.transform='none';
     if(vig)vig.style.display='none';
     setTimeout(function(){
@@ -1267,19 +1274,16 @@ var ARROWS={
 
 // ─── NAV PANEL (mini painel durante navegação) ───────────────────────────────
 function showNavPanel(){
-  var panel=document.getElementById('nav-status-bar');
-  if(panel){panel.style.display='flex';return;}
-  // Criar barra de status de navegação no painel
+  var existing=document.getElementById('nav-status-bar');
+  if(existing)existing.remove();
   var bar=document.createElement('div');
   bar.id='nav-status-bar';
-  bar.style.cssText='display:flex;align-items:center;justify-content:space-between;'
-    +'background:var(--adim);border:1px solid var(--accent);border-radius:var(--r);'
-    +'padding:10px 14px;margin:12px 14px;gap:10px;';
-  bar.innerHTML='<div style="font-family:Syne,sans-serif;font-size:13px;font-weight:700;color:var(--accent)">🚗 Navegando...</div>'
+  bar.innerHTML='<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:var(--accent)">🚗 Navegando...</div>'
     +'<button onclick="stopNav()" style="background:var(--rdim);border:1px solid var(--red);'
-    +'border-radius:6px;color:var(--red);font-size:12px;padding:5px 10px;cursor:pointer;">✕ Encerrar</button>';
-  var pscroll=document.querySelector('.pscroll');
-  if(pscroll)pscroll.insertBefore(bar,pscroll.firstChild);
+    +'border-radius:8px;color:var(--red);font-family:Syne,sans-serif;font-size:13px;font-weight:700;padding:6px 14px;cursor:pointer;min-height:36px;">✕ Encerrar</button>';
+  // Inserir DIRETAMENTE no panel, FORA do pscroll
+  var panelEl=document.getElementById('panel');
+  if(panelEl)panelEl.insertBefore(bar,panelEl.firstChild);
 }
 function hideNavPanel(){
   var panel=document.getElementById('nav-status-bar');
