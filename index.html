@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#0d1117"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta http-equiv="Permissions-Policy" content="geolocation=*"/>
 <title>GPS Roteirizador</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
@@ -109,7 +110,7 @@ body{display:flex;flex-direction:column}
   border:none;background:var(--bg3);border-radius:50%;color:var(--text3);font-size:13px;
   cursor:pointer;display:none;align-items:center;justify-content:center;padding:0;line-height:1}
 .clr.show{display:flex}
-.btn-loc{width:40px;height:40px;border:1px solid var(--border);border-radius:var(--r);
+.btn-loc{width:44px;height:44px;border:1px solid var(--border);border-radius:var(--r);
   background:var(--bg2);color:var(--text2);cursor:pointer;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;transition:all .2s;padding:0}
 .btn-loc:active{border-color:var(--blue);color:var(--blue);background:var(--bdim)}
@@ -348,6 +349,29 @@ body{display:flex;flex-direction:column}
   .btn-reroute{top:calc(45dvh - 56px)!important}
 }
 .pac-container{position:fixed!important}
+
+/* Botão de localização - estado aguardando */
+.btn-loc.sp{border-color:var(--accent);color:var(--accent);background:var(--adim)}
+@media(max-width:768px){
+  .btn-loc{width:44px!important;height:44px!important}
+  .irow{gap:6px!important}
+}
+
+/* Banner de permissão GPS para mobile */
+#gps-permission-banner{
+  display:none;position:fixed;bottom:0;left:0;right:0;
+  background:var(--bg2);border-top:1px solid var(--border2);
+  padding:16px;z-index:9998;
+  padding-bottom:max(16px,env(safe-area-inset-bottom,16px));
+}
+#gps-permission-banner.show{display:block}
+.gpb-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:6px;color:var(--text)}
+.gpb-text{font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5}
+.gpb-btns{display:flex;gap:8px}
+.gpb-btn{flex:1;height:44px;border-radius:var(--r);border:none;font-family:'Syne',sans-serif;
+  font-size:14px;font-weight:700;cursor:pointer}
+.gpb-btn.primary{background:var(--accent);color:var(--bg)}
+.gpb-btn.secondary{background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -540,52 +564,55 @@ var darkStyles=[
 function toggleView(){
   carView=!carView;
   var btn=document.getElementById('btn-view');
-  var mapWrap=document.getElementById('map-wrap');
   var mapEl=document.getElementById('map');
+  var vig=document.getElementById('car-vignette');
 
   if(carView){
-    // Switch to hybrid satellite for better road visibility
-    map.setMapTypeId(google.maps.MapTypeId.HYBRID);
-    map.setOptions({styles:null});
-
-    // Apply CSS 3D perspective — works everywhere regardless of Google imagery
-    mapEl.style.transformOrigin='50% 65%';
-    mapEl.style.transform='perspective(900px) rotateX(42deg) scale(1.55)';
-    mapEl.style.transition='transform 0.4s ease';
-
-    // Add vignette overlay for depth effect
-    var vig=document.getElementById('car-vignette');
+    // Vista dentro do carro: usar API nativa do Google Maps (tilt + heading)
+    map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
+    map.setOptions({styles:darkStyles});
+    mapEl.style.transform='none';
+    mapEl.style.transition='none';
     if(vig)vig.style.display='block';
-
     setTimeout(function(){
-      map.setZoom(17);
+      map.setZoom(18);
+      map.setTilt(65);
       if(lastHdg)map.setHeading(lastHdg);
+      else map.setHeading(0);
       if(lastPos&&following)map.panTo(lastPos);
-    },350);
-
+    },200);
     btn.textContent='🛰️';btn.classList.add('on');
     toast('Vista dentro do carro ativada');
     speak('Vista dentro do carro');
   }else{
-    // Restore flat aerial view
+    // Vista aérea: voltar ao normal
+    map.setTilt(0);
+    map.setHeading(0);
     map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
     map.setOptions({styles:darkStyles});
     mapEl.style.transform='none';
-    mapEl.style.transition='transform 0.4s ease';
-    map.setHeading(0);
-
-    var vig=document.getElementById('car-vignette');
     if(vig)vig.style.display='none';
-
+    setTimeout(function(){
+      if(lastDirRes){
+        var bounds=new google.maps.LatLngBounds();
+        lastDirRes.routes[0].legs.forEach(function(l){
+          bounds.extend(l.start_location);bounds.extend(l.end_location);
+        });
+        map.fitBounds(bounds,{top:60,right:20,bottom:60,left:window.innerWidth>768?400:20});
+      }else{
+        map.setZoom(14);
+        if(lastPos)map.panTo(lastPos);
+      }
+    },200);
     btn.textContent='🛣️';btn.classList.remove('on');
     toast('Vista aérea');
     speak('Vista aérea');
   }
 }
-
 function applyCarView(heading){
   if(!carView||!navOn)return;
   map.setHeading(heading);
+  map.setTilt(65);
   if(following&&lastPos)map.panTo(lastPos);
 }
 
@@ -599,7 +626,7 @@ function calcBearing(from,to){
 }
 
 // ─── MAP ──────────────────────────────────────────────────────────────────────
-function initMap(){
+window.initMap = function initMap(){
   map=new google.maps.Map(document.getElementById('map'),{
     center:{lat:-23.55,lng:-46.63},zoom:11,
     mapTypeControl:false,fullscreenControl:false,streetViewControl:false,
@@ -670,18 +697,86 @@ function setMode(m){
 
 // ─── MY LOC ──────────────────────────────────────────────────────────────────
 function getMyLoc(){
-  if(!navigator.geolocation){toast('GPS não disponível');return}
-  var btn=document.getElementById('btn-loc');btn.classList.add('sp');
-  navigator.geolocation.getCurrentPosition(function(pos){
+  if(!navigator.geolocation){
+    toast('❌ GPS não suportado neste navegador');
+    return;
+  }
+  userInteracted=true;
+  var btn=document.getElementById('btn-loc');
+  btn.classList.add('sp');
+  toast('📍 Obtendo localização...');
+
+  function onSuccess(pos){
     btn.classList.remove('sp');
     var lat=pos.coords.latitude,lng=pos.coords.longitude;
-    geocoder.geocode({location:{lat:lat,lng:lng},language:'pt-BR'},function(res,st){
-      var el=document.getElementById('origin');
-      el.value=(st==='OK'&&res[0])?res[0].formatted_address:(lat.toFixed(5)+', '+lng.toFixed(5));
-      updClr('origin');map.panTo({lat:lat,lng:lng});toast('Localização obtida!');
+    var coordStr=lat.toFixed(6)+','+lng.toFixed(6);
+    var el=document.getElementById('origin');
+    el.value=coordStr;
+    updClr('origin');
+    if(map){map.panTo({lat:lat,lng:lng});map.setZoom(15);}
+    toast('📍 Localizando endereço...');
+    if(geocoder){
+      geocoder.geocode({location:{lat:lat,lng:lng},language:'pt-BR'},function(res,st){
+        if(st==='OK'&&res&&res[0]){
+          el.value=res[0].formatted_address;
+          updClr('origin');
+        }
+        toast('✅ Localização obtida!');
+      });
+    }else{
+      toast('✅ Coordenadas obtidas!');
+    }
+  }
+
+  function onError(e){
+    btn.classList.remove('sp');
+    if(e.code===1){
+      // iOS: instrução específica
+      var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+      if(isIOS){
+        toast('❌ Permissão negada. Vá em: Ajustes → Safari → Localização → Permitir');
+      }else{
+        toast('❌ Permissão negada. Toque no ícone 🔒 na barra de endereço e permita Localização');
+      }
+    }else if(e.code===2){
+      toast('❌ GPS fraco. Vá para área aberta e tente novamente');
+    }else if(e.code===3){
+      toast('❌ Timeout. Verifique o sinal GPS e tente novamente');
+    }else{
+      toast('❌ Erro GPS: '+e.message);
+    }
+  }
+
+  // Usar Permissions API para verificar estado antes (Chrome/Android)
+  if(navigator.permissions&&navigator.permissions.query){
+    navigator.permissions.query({name:'geolocation'}).then(function(result){
+      if(result.state==='denied'){
+        btn.classList.remove('sp');
+        var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+        if(isIOS){
+          toast('❌ GPS bloqueado. Ajustes → Safari → Localização → Permitir');
+        }else{
+          toast('❌ GPS bloqueado. Configurações → Navegador → Permissões → Localização');
+        }
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(onSuccess,onError,{
+        enableHighAccuracy:true,timeout:20000,maximumAge:30000
+      });
+    }).catch(function(){
+      // Permissions API falhou, tentar direto
+      navigator.geolocation.getCurrentPosition(onSuccess,onError,{
+        enableHighAccuracy:true,timeout:20000,maximumAge:30000
+      });
     });
-  },function(e){btn.classList.remove('sp');toast(['','Permissão negada','GPS fraco','Timeout'][e.code]||'Erro GPS')},{enableHighAccuracy:true,timeout:12000,maximumAge:0});
+  }else{
+    // iOS Safari não tem Permissions API, chamar direto
+    navigator.geolocation.getCurrentPosition(onSuccess,onError,{
+      enableHighAccuracy:true,timeout:20000,maximumAge:30000
+    });
+  }
 }
+
 
 // ─── CALC ────────────────────────────────────────────────────────────────────
 function calc(){
@@ -857,13 +952,19 @@ function fetchRadars(legs){
 function toggleLive(){liveOn?stopLive():startLive()}
 function startLive(){
   if(!navigator.geolocation){toast('GPS não disponível');return}
+  userInteracted=true;
   liveOn=true;following=true;
   document.getElementById('btn-live').classList.add('on');
   document.getElementById('live-lbl').textContent='Ativo';
   document.getElementById('gps-bar').classList.add('show');
   document.getElementById('fab-follow').classList.add('show');
   updFlwUI();
-  watchId=navigator.geolocation.watchPosition(onGPS,onGPSErr,{enableHighAccuracy:true,timeout:15000,maximumAge:1000});
+  // iOS precisa de chamada direta, sem Permissions API prévia
+  watchId=navigator.geolocation.watchPosition(onGPS,onGPSErr,{
+    enableHighAccuracy:true,
+    timeout:30000,
+    maximumAge:3000
+  });
   // Wake Lock - keep screen on
   if(navigator.wakeLock){
     navigator.wakeLock.request('screen').then(function(wl){wakeLock=wl}).catch(function(){});
@@ -926,7 +1027,26 @@ function onGPS(pos){
     checkRadars(ll,kmh);
   }
 }
-function onGPSErr(e){toast(['','Permissão negada','GPS fraco','Timeout'][e.code]||'Erro GPS');stopLive()}
+function onGPSErr(e){
+  var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+  if(e.code===1){
+    if(isIOS){
+      toast('❌ GPS negado. Ajustes → Safari → Localização → Permitir');
+    }else{
+      toast('❌ GPS negado. Toque em 🔒 na barra de endereço → Localização → Permitir');
+    }
+    stopLive();
+  }else if(e.code===2){
+    toast('❌ Sinal GPS fraco. Vá para área aberta.');
+    stopLive();
+  }else if(e.code===3){
+    // Timeout: não para o rastreamento, só avisa
+    toast('⚠️ GPS lento. Aguardando sinal...');
+  }else{
+    toast('❌ Erro GPS. Tente novamente.');
+    stopLive();
+  }
+}
 
 // ─── MARKERS ─────────────────────────────────────────────────────────────────
 function buildDot(ll){
@@ -1011,6 +1131,7 @@ function stopNav(){
   map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
   map.setOptions({styles:darkStyles});
   map.setHeading(0);
+  map.setTilt(0);
   speak('Navegação encerrada.');
 }
 
@@ -1298,6 +1419,52 @@ function reset(){
   stops=[' ',' '];renderStops();hideErr();
   stopLive();radarMarkers=[];rerouteSuggested=false;hideRerouteBtn();toast('Pronto para nova rota');
 }
+
+// ─── GPS PERMISSION HELPER ───────────────────────────────────────────────────
+function showGPSBanner(){
+  var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+  var txt=document.getElementById('gpb-text');
+  if(isIOS){
+    txt.textContent='No iOS: quando solicitado, toque em "Permitir" para habilitar o GPS. Se já negou antes, vá em: Ajustes → Safari → Localização → Permitir.';
+  }else{
+    txt.textContent='Quando solicitado pelo navegador, toque em "Permitir" para habilitar o GPS. Se já negou, toque em 🔒 na barra de endereço → Permissões → Localização.';
+  }
+  document.getElementById('gps-permission-banner').classList.add('show');
+}
+function requestGPSPermission(){
+  document.getElementById('gps-permission-banner').classList.remove('show');
+  userInteracted=true;
+  if(!navigator.geolocation){toast('GPS não disponível');return;}
+  navigator.geolocation.getCurrentPosition(
+    function(pos){
+      toast('✅ GPS habilitado!');
+      // Se havia uma ação pendente, executar
+      if(window._pendingGPSAction){window._pendingGPSAction();window._pendingGPSAction=null;}
+    },
+    function(e){
+      var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+      if(e.code===1){
+        if(isIOS)toast('❌ Vá em: Ajustes → Safari → Localização → Permitir');
+        else toast('❌ Toque em 🔒 na barra → Localização → Permitir');
+      }
+    },
+    {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+  );
+}
+// Mostrar banner GPS na primeira visita mobile
+(function(){
+  var isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  if(!isMobile)return;
+  if(!navigator.geolocation)return;
+  if(navigator.permissions&&navigator.permissions.query){
+    navigator.permissions.query({name:'geolocation'}).then(function(r){
+      if(r.state==='prompt'){
+        setTimeout(showGPSBanner,1500);
+      }
+    }).catch(function(){});
+  }
+})();
+
 // pre-load voices (mobile carrega async)
 if(window.speechSynthesis){
   window.speechSynthesis.getVoices();
@@ -1308,6 +1475,16 @@ window.addEventListener('beforeunload',function(){if(synth)synth.cancel()});
 
 </script>
 
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBh5QkbeFrQzKWcbiFhjhulS9OahrT9Ung&libraries=places,geometry&callback=initMap&language=pt-BR&region=BR" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBh5QkbeFrQzKWcbiFhjhulS9OahrT9Ung&libraries=places,geometry&callback=initMap&language=pt-BR&region=BR" async></script>
+
+<!-- Banner GPS Permission -->
+<div id="gps-permission-banner">
+  <div class="gpb-title">📍 Permissão de Localização</div>
+  <div class="gpb-text" id="gpb-text">Para usar o GPS, permita o acesso à sua localização quando o navegador solicitar.</div>
+  <div class="gpb-btns">
+    <button class="gpb-btn primary" onclick="requestGPSPermission()">Permitir GPS</button>
+    <button class="gpb-btn secondary" onclick="document.getElementById('gps-permission-banner').classList.remove('show')">Agora não</button>
+  </div>
+</div>
 </body>
 </html>
