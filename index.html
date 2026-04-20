@@ -386,14 +386,7 @@ body{display:flex;flex-direction:column}
 }
 @media(max-width:768px){
   /* Durante navegação, reduzir altura do painel para mostrar mais mapa */
-  .panel.navigating{
-    flex:0 0 auto!important;
-    max-height:180px!important;
-    overflow:hidden!important;
-  }
-  .panel.navigating .pscroll{
-    overflow:hidden!important;
-  }
+  .panel.navigating{display:none!important}
 }
 
 /* ═══ VELOCÍMETRO ═══════════════════════════════════════════════════ */
@@ -465,6 +458,50 @@ body{display:flex;flex-direction:column}
   .fab-follow.on ~ #speedometer,
   #speedometer.show ~ .fab-follow{
     right:84px;
+  }
+}
+
+/* Barra flutuante de navegação (sobre o mapa) */
+#nav-float-bar{
+  display:none;
+  position:absolute;
+  bottom:16px;
+  left:50%;
+  transform:translateX(-50%);
+  background:var(--bg);
+  border:1px solid var(--accent);
+  border-radius:var(--rlg);
+  padding:10px 20px;
+  z-index:200;
+  align-items:center;
+  gap:16px;
+  box-shadow:0 4px 24px rgba(0,0,0,.7);
+  white-space:nowrap;
+  max-width:calc(100% - 32px);
+}
+#nav-float-bar.show{display:flex}
+#nav-float-bar .nfb-label{
+  font-family:'Syne',sans-serif;
+  font-size:14px;
+  font-weight:700;
+  color:var(--accent);
+}
+#nav-float-bar .nfb-btn{
+  background:var(--rdim);
+  border:1px solid var(--red);
+  border-radius:8px;
+  color:var(--red);
+  font-family:'Syne',sans-serif;
+  font-size:13px;
+  font-weight:700;
+  padding:7px 16px;
+  cursor:pointer;
+  min-height:36px;
+}
+@media(max-width:768px){
+  #nav-float-bar{
+    bottom:12px;
+    padding:10px 16px;
   }
 }
 </style>
@@ -539,6 +576,12 @@ body{display:flex;flex-direction:column}
       <div id="spd-val">--</div>
       <div id="spd-unit">km/h</div>
       <div id="spd-limit"></div>
+    </div>
+
+    <!-- BARRA FLUTUANTE NAVEGAÇÃO -->
+    <div id="nav-float-bar">
+      <span class="nfb-label">🚗 Navegando...</span>
+      <button class="nfb-btn" onclick="stopNav()">✕ Encerrar</button>
     </div>
 
     <!-- FAB FOLLOW -->
@@ -1274,20 +1317,16 @@ var ARROWS={
 
 // ─── NAV PANEL (mini painel durante navegação) ───────────────────────────────
 function showNavPanel(){
-  var existing=document.getElementById('nav-status-bar');
-  if(existing)existing.remove();
-  var bar=document.createElement('div');
-  bar.id='nav-status-bar';
-  bar.innerHTML='<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:var(--accent)">🚗 Navegando...</div>'
-    +'<button onclick="stopNav()" style="background:var(--rdim);border:1px solid var(--red);'
-    +'border-radius:8px;color:var(--red);font-family:Syne,sans-serif;font-size:13px;font-weight:700;padding:6px 14px;cursor:pointer;min-height:36px;">✕ Encerrar</button>';
-  // Inserir DIRETAMENTE no panel, FORA do pscroll
-  var panelEl=document.getElementById('panel');
-  if(panelEl)panelEl.insertBefore(bar,panelEl.firstChild);
+  // Usar barra flutuante sobre o mapa — sem depender do painel
+  var bar=document.getElementById('nav-float-bar');
+  if(bar)bar.classList.add('show');
 }
 function hideNavPanel(){
-  var panel=document.getElementById('nav-status-bar');
-  if(panel)panel.remove();
+  var bar=document.getElementById('nav-float-bar');
+  if(bar)bar.classList.remove('show');
+  // Remover legado se existir
+  var old=document.getElementById('nav-status-bar');
+  if(old)old.remove();
 }
 function startNav(){
   if(!optAddrs.length){toast('Calcule uma rota primeiro');return}
