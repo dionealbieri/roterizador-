@@ -395,6 +395,78 @@ body{display:flex;flex-direction:column}
     overflow:hidden!important;
   }
 }
+
+/* ═══ VELOCÍMETRO ═══════════════════════════════════════════════════ */
+#speedometer{
+  display:none;
+  position:absolute;
+  bottom:16px;
+  right:16px;
+  width:76px;
+  height:76px;
+  background:var(--bg);
+  border:2px solid var(--border2);
+  border-radius:50%;
+  z-index:145;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  box-shadow:0 4px 20px rgba(0,0,0,.6);
+  cursor:pointer;
+  transition:border-color .3s;
+}
+#speedometer.show{display:flex}
+#speedometer.warn{border-color:var(--warn);box-shadow:0 4px 24px rgba(240,165,0,.5)}
+#speedometer.danger{border-color:var(--red);box-shadow:0 4px 24px rgba(248,81,73,.6);animation:spd-pulse .6s ease-in-out infinite alternate}
+@keyframes spd-pulse{from{box-shadow:0 4px 20px rgba(248,81,73,.5)}to{box-shadow:0 4px 32px rgba(248,81,73,.9)}}
+#spd-val{
+  font-family:'Syne',sans-serif;
+  font-size:28px;
+  font-weight:800;
+  color:var(--text);
+  line-height:1;
+  letter-spacing:-1px;
+}
+#speedometer.warn #spd-val{color:var(--warn)}
+#speedometer.danger #spd-val{color:var(--red)}
+#spd-unit{
+  font-size:9px;
+  color:var(--text3);
+  font-weight:500;
+  letter-spacing:.05em;
+  margin-top:1px;
+}
+#spd-limit{
+  font-size:9px;
+  color:var(--text3);
+  margin-top:2px;
+  background:var(--bg3);
+  border-radius:3px;
+  padding:1px 4px;
+  display:none;
+}
+#spd-limit.show{display:block}
+@media(max-width:768px){
+  #speedometer{
+    bottom:auto;
+    top:calc(52dvh - 88px);
+    right:8px;
+    width:68px;
+    height:68px;
+  }
+  #spd-val{font-size:24px}
+}
+@media(max-width:480px){
+  #speedometer{top:calc(45dvh - 88px)}
+}
+
+@media(max-width:768px){
+  /* Quando GPS ativo, fab-follow sobe para não sobrepor velocímetro */
+  .fab-follow.on ~ #speedometer,
+  #speedometer.show ~ .fab-follow{
+    right:84px;
+  }
+}
 </style>
 </head>
 <body>
@@ -461,6 +533,13 @@ body{display:flex;flex-direction:column}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
       Recalcular daqui
     </button>
+
+    <!-- VELOCÍMETRO -->
+    <div id="speedometer" title="Velocidade atual">
+      <div id="spd-val">--</div>
+      <div id="spd-unit">km/h</div>
+      <div id="spd-limit"></div>
+    </div>
 
     <!-- FAB FOLLOW -->
     <button class="fab-follow" id="fab-follow" onclick="recenter()" title="Minha posição">
@@ -980,6 +1059,7 @@ function startLive(){
   document.getElementById('btn-live').classList.add('on');
   document.getElementById('live-lbl').textContent='Ativo';
   document.getElementById('gps-bar').classList.add('show');
+  document.getElementById('speedometer').classList.add('show');
   document.getElementById('fab-follow').classList.add('show');
   updFlwUI();
   // iOS precisa de chamada direta, sem Permissions API prévia
@@ -1004,6 +1084,7 @@ function stopLive(){
   document.getElementById('btn-live').classList.remove('on');
   document.getElementById('live-lbl').textContent='GPS';
   document.getElementById('gps-bar').classList.remove('show');
+  document.getElementById('speedometer').classList.remove('show');
   document.getElementById('fab-follow').classList.remove('show','on');
   rmOvl();if(accCircle){accCircle.setMap(null);accCircle=null}
   if(navOn)stopNav();
@@ -1011,6 +1092,60 @@ function stopLive(){
 }
 function rmOvl(){if(gpsOvl){gpsOvl.setMap(null);gpsOvl=null}}
 
+
+// ─── VELOCÍMETRO ─────────────────────────────────────────────────────────────
+function updSpeedometer(kmh){
+  var el=document.getElementById('speedometer');
+  var val=document.getElementById('spd-val');
+  var limitEl=document.getElementById('spd-limit');
+  if(!el)return;
+
+  // Mostrar velocímetro se GPS ativo
+  if(liveOn){
+    el.classList.add('show');
+  }else{
+    el.classList.remove('show');
+    return;
+  }
+
+  // Valor
+  val.textContent=(kmh!==null&&kmh>=0)?kmh:'--';
+
+  // Pegar limite de velocidade do radar mais próximo
+  var limit=null;
+  if(radarMarkers.length&&kmh!==null){
+    // pegar o radar mais próximo com limite definido
+    var nearest=null,nearestDist=9999;
+    if(window.lastPos2){
+      radarMarkers.forEach(function(r){
+        if(!r.speed)return;
+        var d=google.maps.geometry.spherical.computeDistanceBetween(
+          window.lastPos2,new google.maps.LatLng(r.lat,r.lng));
+        if(d<500&&d<nearestDist){nearestDist=d;nearest=r;}
+      });
+    }
+    if(nearest)limit=nearest.speed;
+  }
+
+  // Mostrar limite
+  if(limit){
+    limitEl.textContent='máx '+limit;
+    limitEl.classList.add('show');
+  }else{
+    limitEl.classList.remove('show');
+  }
+
+  // Cor baseada na velocidade vs limite
+  el.classList.remove('warn','danger');
+  if(kmh!==null&&limit){
+    if(kmh>limit+10)el.classList.add('danger');
+    else if(kmh>limit)el.classList.add('warn');
+  }else if(kmh!==null&&kmh>120){
+    el.classList.add('danger');
+  }else if(kmh!==null&&kmh>100){
+    el.classList.add('warn');
+  }
+}
 function onGPS(pos){
   var lat=pos.coords.latitude,lng=pos.coords.longitude,acc=pos.coords.accuracy;
   var spd=pos.coords.speed,hdg=pos.coords.heading;
@@ -1024,7 +1159,7 @@ function onGPS(pos){
   }else{
     heading=lastHdg;
   }
-  lastHdg=heading;lastPos=ll;
+  lastHdg=heading;lastPos=ll;window.lastPos2=ll;
   // 3D car view heading rotation
   if(navOn&&carView)applyCarView(heading);
   // accuracy circle
@@ -1037,6 +1172,8 @@ function onGPS(pos){
   var kmh=(spd!=null&&spd>=0)?Math.round(spd*3.6):null;
   document.getElementById('gspd').textContent=kmh!==null?kmh:'--';
   document.getElementById('gacc').textContent=Math.round(acc);
+  // velocímetro
+  updSpeedometer(kmh);
   // check reroute suggestion
   if(optAddrs.length&&!rerouteSuggested)checkShouldReroute(ll);
   // nav
