@@ -381,6 +381,25 @@ body{display:flex;flex-direction:column}
 
 
 
+
+/* ── BOTÃO PRÓXIMA PARADA ── */
+.btn-next-stop{
+  display:none;position:absolute;bottom:76px;left:50%;transform:translateX(-50%);
+  background:var(--accent);border:none;border-radius:var(--rlg);
+  padding:12px 22px;z-index:160;align-items:center;gap:10px;
+  font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--bg);
+  cursor:pointer;white-space:nowrap;max-width:calc(100% - 32px);
+  box-shadow:0 4px 24px rgba(0,201,167,.6);
+  animation:nextStopPop .4s cubic-bezier(.175,.885,.32,1.275);
+}
+.btn-next-stop.show{display:flex}
+@keyframes nextStopPop{from{transform:translateX(-50%) scale(.6);opacity:0}to{transform:translateX(-50%) scale(1);opacity:1}}
+.btn-next-stop-ico{font-size:18px;flex-shrink:0}
+.btn-next-stop-txt{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
+.btn-next-stop-label{font-size:12px;opacity:.8;font-weight:400;font-family:'Inter',sans-serif}
+.btn-next-stop-main{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+@media(max-width:480px){.btn-next-stop{bottom:68px;padding:10px 16px}}
+
 /* ── ROTAS SALVAS ── */
 .btn-save-route{
   width:100%;height:40px;border:1px solid var(--border2);border-radius:var(--r);
@@ -566,6 +585,16 @@ body{display:flex;flex-direction:column}
       </div>
     </div>
 
+
+    <!-- PRÓXIMA PARADA -->
+    <button class="btn-next-stop" id="btn-next-stop" onclick="continueToNextStop()">
+      <span class="btn-next-stop-ico">▶</span>
+      <span class="btn-next-stop-txt">
+        <span class="btn-next-stop-label">Chegou na parada!</span>
+        <span class="btn-next-stop-main" id="btn-next-stop-lbl">Próxima parada</span>
+      </span>
+    </button>
+
     <!-- GPS BAR -->
     <div class="gps-bar" id="gps-bar">
       <div class="gbdot"></div>
@@ -689,6 +718,7 @@ var watchId=null,liveOn=false,following=true;
 var gpsOvl=null,accCircle=null,lastHdg=0,lastPos=null;
 // NAV
 var navOn=false,navSteps=[],navIdx=0;
+var navLegs=[],navLegIdx=0,navLegStepStart=[];
 var lastSpokenIdx=-1,lastSpokenDist=-1;
 // VOICE
 var voiceOn=true;
@@ -1418,7 +1448,20 @@ var ARROWS={
 function startNav(){
   if(!optAddrs.length){toast('Calcule uma rota primeiro');return}
   navOn=true;navSteps=[];navIdx=0;lastSpokenIdx=-1;lastSpokenDist=-1;arrivalConfirmed=false;window._arrivalCount=0;headingUpMode=false;
-  if(lastDirRes){lastDirRes.routes[0].legs.forEach(function(leg){leg.steps.forEach(function(s){navSteps.push(s)})})}
+  navLegs=[];navLegIdx=0;navLegStepStart=[];
+  if(lastDirRes){
+    var stepCount=0;
+    lastDirRes.routes[0].legs.forEach(function(leg,li){
+      navLegStepStart.push(stepCount); // first step index of this leg
+      navLegs.push({
+        addr:optAddrs[li+1]||'',
+        dist:leg.distance.text,
+        time:leg.duration.text,
+        endLoc:leg.end_location
+      });
+      leg.steps.forEach(function(s){navSteps.push(s);stepCount++;});
+    });
+  }
 
   // Force re-attach dirRend so route line stays visible during navigation
   dirRend.setMap(null);
@@ -1444,10 +1487,11 @@ function startNav(){
 }
 
 function stopNav(){
-  navOn=false;navSteps=[];navIdx=0;lastSpokenIdx=-1;lastSpokenDist=-1;
+  navOn=false;navSteps=[];navIdx=0;lastSpokenIdx=-1;lastSpokenDist=-1;navLegIdx=0;navLegs=[];navLegStepStart=[];
   document.getElementById('nav-hud').classList.remove('show');
   var b=document.getElementById('btn-nav');if(b)b.style.display='';
   document.getElementById('alert-banner').classList.remove('show');
+  var bns=document.getElementById('btn-next-stop');if(bns)bns.classList.remove('show');
   rmOvl();
   // reset view to dark road map  headingUpMode=false;
   var bv=document.getElementById('btn-view');if(bv){bv.textContent='🧭';bv.classList.remove('on')}
@@ -1481,23 +1525,38 @@ function advStep(ll){
       else if(distNxt<=200&&distNxt>80&&lastSpokenDist!==200){speak('Em 200 metros, '+maneuverPT(maneuver));lastSpokenDist=200;}
     }
   }
-  // Arrival: require GPS accuracy ≤ 60m AND 3 consecutive readings near dest
+  // ── Check intermediate leg arrival ──────────────────────────────────────────
+  if(navLegs.length>1&&navLegIdx<navLegs.length-1){
+    // Find which step ends the current leg
+    var curLegEndStep=navLegStepStart[navLegIdx+1]-1;
+    if(navIdx>=curLegEndStep&&curLegEndStep>=0){
+      var legDist=google.maps.geometry.spherical.computeDistanceBetween(ll,navLegs[navLegIdx].endLoc);
+      var legThreshold=Math.max(60,Math.min(acc*1.3,100));
+      if(legDist<legThreshold){
+        if(!window._legArrCount)window._legArrCount=0;
+        window._legArrCount++;
+        if(window._legArrCount>=2&&!document.getElementById('btn-next-stop').classList.contains('show')){
+          window._legArrCount=0;
+          showNextStopBtn();
+        }
+      }else window._legArrCount=0;
+    }
+  }
+
+  // ── Final arrival ─────────────────────────────────────────────────────────
   if(navIdx>=navSteps.length-1&&!arrivalConfirmed){
     var distEnd=google.maps.geometry.spherical.computeDistanceBetween(ll,navSteps[navSteps.length-1].end_location);
     var arrThreshold=Math.max(50,Math.min(acc*1.2,80));
     if(distEnd<arrThreshold&&acc<70){
       if(!window._arrivalCount)window._arrivalCount=0;
       window._arrivalCount++;
-      if(window._arrivalCount>=2){  // 2 consecutive readings
-        arrivalConfirmed=true;
-        window._arrivalCount=0;
-        speak('Você chegou ao destino!');
-        toast('🏁 Chegou ao destino!');
+      if(window._arrivalCount>=2){
+        arrivalConfirmed=true;window._arrivalCount=0;
+        speak('Você chegou ao destino final!');
+        toast('🏁 Chegou ao destino final!');
         setTimeout(stopNav,4000);
       }
-    }else{
-      window._arrivalCount=0;
-    }
+    }else window._arrivalCount=0;
   }
   updHUD();
 }
@@ -1721,6 +1780,38 @@ function toggleNavPanel(){
       }
     },150);
   }
+}
+
+
+// ─── PRÓXIMA PARADA ───────────────────────────────────────────────────────────
+function showNextStopBtn(){
+  var leg=navLegs[navLegIdx];
+  var nextAddr=navLegs[navLegIdx+1]?navLegs[navLegIdx+1].addr:null;
+  var btn=document.getElementById('btn-next-stop');
+  var lbl=document.getElementById('btn-next-stop-lbl');
+  if(!btn)return;
+  // Update label
+  var stopNum=navLegIdx+1;
+  var txt='Parada '+stopNum+' atingida!';
+  if(nextAddr)txt+=' → '+nextAddr.substring(0,30)+(nextAddr.length>30?'…':'');
+  if(lbl)lbl.textContent=txt;
+  btn.classList.add('show');
+  // Voice
+  speak('Você chegou à parada '+ stopNum+'. Toque em próxima parada quando estiver pronto.');
+  toast('📍 Parada '+stopNum+' atingida!');
+}
+
+function continueToNextStop(){
+  var btn=document.getElementById('btn-next-stop');
+  if(btn)btn.classList.remove('show');
+  navLegIdx++;
+  window._legArrCount=0;
+  // Re-zoom and re-center
+  if(lastPos&&following){map.panTo(lastPos);map.setZoom(17);}
+  var nextAddr=navLegs[navLegIdx]?navLegs[navLegIdx].addr:'';
+  speak('Seguindo para a próxima parada.'+(nextAddr?' Destino: '+nextAddr.split(',')[0]:''));
+  toast('🚗 Seguindo para parada '+(navLegIdx+1));
+  updHUD();
 }
 
 // ─── HEADING-UP MODE (mapa gira com você, como Waze/Google Maps nav) ─────────
@@ -2089,7 +2180,7 @@ function skipAddrPopup(){
   if(!_addrPopupId)return;
   var input=document.getElementById(_addrPopupId);
   if(input){
-    input.value=_addrPopupBase;
+    input.value=_addrPopupBase.replace(/,?\s*Brasil\s*$/, '').trim();
     updClr(_addrPopupId);
     var i=parseInt(_addrPopupId.replace('stop-',''));
     if(!isNaN(i))stops[i]=_addrPopupBase;
@@ -2115,15 +2206,22 @@ function confirmAddrPopup(){
   var addr=_addrPopupBase;
 
   if(num){
-    // Try to inject number right after the street name (before first comma that's a city/neighborhood)
-    // e.g. "Av. Paulista, São Paulo" + num "1000" → "Av. Paulista, 1000 - São Paulo"
-    var parts=addr.split(',');
-    if(parts.length>=2){
-      // Insert number after street name
-      addr=parts[0].trim()+', '+num+','+parts.slice(1).join(',');
+    // Correct position: Street Name, Number, Neighborhood, City
+    // Google format example: "Rua das Flores, Jardim X, São Paulo - SP, Brasil"
+    // We remove "Brasil" suffix if present, then insert number after street
+    addr=addr.replace(/,?\s*Brasil\s*$/, '').trim();
+    var parts=addr.split(',').map(function(p){return p.trim()}).filter(Boolean);
+    if(parts.length>=1){
+      // parts[0] = street name → insert number right after
+      var result=[parts[0], num];
+      for(var pi=1;pi<parts.length;pi++)result.push(parts[pi]);
+      addr=result.join(', ');
     }else{
       addr=addr+', '+num;
     }
+  }else{
+    // No number — just clean Brasil suffix
+    addr=addr.replace(/,?\s*Brasil\s*$/, '').trim();
   }
 
   if(obs){
