@@ -247,16 +247,22 @@ body{display:flex;flex-direction:column}
 .btn-endnav{padding:4px 10px;border:1px solid var(--red);border-radius:6px;background:none;
   color:var(--red);font-size:11px;cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap}
 
-/* ── RADAR ALERT ── */
-.radar-alert{display:none;position:absolute;top:72px;left:50%;transform:translateX(-50%);
-  background:var(--warn);border-radius:var(--rlg);padding:10px 18px;z-index:160;
-  display:none;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(240,165,0,.5);
-  max-width:calc(100% - 20px);animation:radarPulse .5s ease-in-out infinite alternate}
-.radar-alert.show{display:flex}
-@keyframes radarPulse{from{box-shadow:0 4px 20px rgba(240,165,0,.4)}to{box-shadow:0 4px 32px rgba(240,165,0,.8)}}
-.radar-ico{font-size:22px;flex-shrink:0}
-.radar-txt{font-size:12px;font-weight:600;color:var(--bg)}
-.radar-spd{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--bg)}
+/* ── ALERT BANNER (radar / polícia / congestionamento) ── */
+.alert-banner{
+  display:none;position:absolute;top:10px;left:50%;transform:translateX(-50%);
+  border-radius:var(--rlg);padding:10px 16px;z-index:165;
+  align-items:center;gap:10px;
+  max-width:calc(100% - 24px);min-width:220px;
+  box-shadow:0 4px 24px rgba(0,0,0,.5);
+  transition:opacity .3s;
+  animation:alertPop .3s cubic-bezier(.175,.885,.32,1.275);
+}
+.alert-banner.show{display:flex}
+@keyframes alertPop{from{transform:translateX(-50%) scale(.8);opacity:0}to{transform:translateX(-50%) scale(1);opacity:1}}
+.ab-icon{font-size:26px;flex-shrink:0;line-height:1}
+.ab-body{flex:1;min-width:0}
+.ab-title{font-size:13px;font-weight:700;color:white;line-height:1.2}
+.ab-sub{font-size:11px;color:rgba(255,255,255,.85);margin-top:2px}
 
 /* ── REROUTE BUTTON ── */
 .btn-reroute{
@@ -409,7 +415,8 @@ body{display:flex;flex-direction:column}
   </div>
   <div class="hdr-btns">
     <div class="voice-wrap">
-      <button class="voice-btn" id="btn-voice" onclick="toggleVoice()">🔊 Voz</button>
+      <button class="voice-btn" id="btn-traffic" onclick="toggleTraffic()" title="Camada de trânsito">🚦</button>
+    <button class="voice-btn" id="btn-voice" onclick="toggleVoice()">🔊 Voz</button>
       <select class="voice-select" id="voice-select" onchange="setVoice(this.value)" title="Escolher voz">
         <option value="">🎙️</option>
       </select>
@@ -442,12 +449,12 @@ body{display:flex;flex-direction:column}
       </div>
     </div>
 
-    <!-- RADAR ALERT -->
-    <div class="radar-alert" id="radar-alert">
-      <div class="radar-ico">📷</div>
-      <div>
-        <div class="radar-txt" id="radar-txt">RADAR</div>
-        <div class="radar-spd" id="radar-spd"></div>
+    <!-- UNIFIED ALERT BANNER -->
+    <div id="alert-banner" class="alert-banner">
+      <div class="ab-icon" id="ab-icon">📷</div>
+      <div class="ab-body">
+        <div class="ab-title">ALERTA</div>
+        <div class="ab-sub"></div>
       </div>
     </div>
 
@@ -611,7 +618,7 @@ window.initMap=function(){
     zoomControlOptions:{position:google.maps.ControlPosition.RIGHT_BOTTOM}
   });
   dirSvc=new google.maps.DirectionsService();
-  dirRend=new google.maps.DirectionsRenderer({suppressMarkers:false,preserveViewport:false,
+  dirRend=new google.maps.DirectionsRenderer({suppressMarkers:true,preserveViewport:false,
     polylineOptions:{strokeColor:'#1a73e8',strokeWeight:6,strokeOpacity:.95}});
   dirRend.setMap(map);
   geocoder=new google.maps.Geocoder();
@@ -622,6 +629,7 @@ window.initMap=function(){
   map.addListener('dragstart',function(){if(liveOn){following=false;updFlwUI()}});
   renderStops();
   initAC('origin');
+  setTimeout(loadAddrs,500);
 }
 
 // ─── AUTOCOMPLETE ─────────────────────────────────────────────────────────────
@@ -721,6 +729,7 @@ function updClr(id){
   if(c)c.style.display=h?'flex':'none';
   var i=parseInt(id.replace('stop-',''));
   if(!isNaN(i)){var pin=document.querySelector('#wrap-'+i+' .pin');if(pin)pin.classList.toggle('v',h)}
+  saveAddrs();
 }
 function clrInput(id){
   var el=document.getElementById(id);if(el){el.value='';updClr(id)}
@@ -752,6 +761,7 @@ function setMode(m){
   var b=document.getElementById('m-'+m);if(b)b.classList.add('on');
   var er=document.getElementById('eco-row'),dis=(m==='WALKING'||m==='BICYCLING');
   er.style.opacity=dis?.4:1;er.style.pointerEvents=dis?'none':'auto';
+  saveAddrs();
 }
 
 // ─── MY LOC ──────────────────────────────────────────────────────────────────
@@ -867,6 +877,7 @@ function renderRoute(res,idx,orig,dests,eco){
   var bounds=new google.maps.LatLngBounds();
   legs.forEach(function(l){bounds.extend(l.start_location);bounds.extend(l.end_location)});
   map.fitBounds(bounds,{top:60,right:20,bottom:60,left:window.innerWidth>768?400:20});
+  drawRouteMarkers(legs);
 }
 
 // ── ALTERNATIVE ROUTES ────────────────────────────────────────────────────────
@@ -903,40 +914,57 @@ function selectAlt(idx){
   renderAltRoutes(altRoutes,orig,dests);
 }
 
-// ─── ADVANCED MARKER HELPER ─────────────────────────────────────────────────
-function makePinMarker(position, svgContent, title, zIdx){
-  if(window._AdvancedMarkerElement){
-    var div=document.createElement('div');
-    div.innerHTML=svgContent;
-    return new window._AdvancedMarkerElement({
-      map:map, position:position,
-      content:div.firstElementChild,
-      title:title,
-      zIndex:zIdx||10
-    });
-  }
-  // Legacy fallback
+// ─── FLAT CIRCULAR ICON MARKERS (no pins/teardrops) ────────────────────────
+function makeIcon(size,bgColor,borderColor,svgInner){
+  var s=size||44;
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="'+s+'" height="'+s+'" viewBox="0 0 '+s+' '+s+'">'
+    +'<circle cx="'+(s/2)+'" cy="'+(s/2)+'" r="'+(s/2-1)+'" fill="'+bgColor+'" stroke="'+borderColor+'" stroke-width="2"/>'
+    +'<circle cx="'+(s/2)+'" cy="'+(s/2)+'" r="'+(s/2-6)+'" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>'
+    +svgInner+'</svg>';
+}
+function placeIcon(pos,svgStr,title,zIdx,sz){
+  var s=sz||44;
   return new google.maps.Marker({
-    position:position,map:map,
-    title:title,
-    icon:{url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svgContent),
-      scaledSize:new google.maps.Size(38,50),
-      anchor:new google.maps.Point(19,50)}
+    position:pos,map:map,title:title||'',zIndex:zIdx||10,optimized:false,
+    icon:{url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svgStr),
+      scaledSize:new google.maps.Size(s,s),anchor:new google.maps.Point(s/2,s/2)}
+  });
+}
+var routeMarkers=[];
+function clearRouteMarkers(){
+  routeMarkers.forEach(function(m){try{m.setMap(null)}catch(e){}});
+  routeMarkers=[];
+}
+function drawRouteMarkers(legs){
+  clearRouteMarkers();
+  if(!legs||!legs.length)return;
+  var pts=[{ll:legs[0].start_location,label:'S',bg:'#00c9a7',bd:'#009f85',sz:32}];
+  legs.forEach(function(leg,i){
+    var last=(i===legs.length-1);
+    pts.push({ll:leg.end_location,label:last?'F':String(i+1),bg:last?'#f85149':'#1a73e8',bd:last?'#c62828':'#0d47a1',sz:last?32:28});
+  });
+  pts.forEach(function(p){
+    var inner='<text x="'+(p.sz/2)+'" y="'+(p.sz/2+1)+'" text-anchor="middle" dominant-baseline="middle"'
+      +' font-size="'+(p.sz<=40?12:14)+'" font-weight="700" fill="white" font-family="Syne,Arial,sans-serif">'+p.label+'</text>';
+    var svg=makeIcon(p.sz,p.bg,p.bd,inner);
+    var lbl=p.label==='S'?'Partida':p.label==='F'?'Chegada':'Parada '+p.label;
+    var m=placeIcon({lat:p.ll.lat(),lng:p.ll.lng()},svg,lbl,200,p.sz);
+    routeMarkers.push(m);
   });
 }
 
-function pinSVG(color, borderColor, iconPath, label){
-  return '<svg xmlns="http://www.w3.org/2000/svg" width="38" height="52" viewBox="0 0 38 52">'
-    +'<path d="M19 1C9.06 1 1 9.06 1 19c0 13.5 18 31 18 31s18-17.5 18-31C37 9.06 28.94 1 19 1z" fill="'+color+'" stroke="'+borderColor+'" stroke-width="1.5"/>'
-    +'<circle cx="19" cy="19" r="12" fill="white"/>'
-    +iconPath
-    +(label?'<text x="19" y="48" text-anchor="middle" font-size="7" font-weight="bold" fill="'+borderColor+'" font-family="Arial">'+label+'</text>':'')
-    +'</svg>';
+// Traffic layer
+var trafficLayer=null,trafficOn=false;
+function toggleTraffic(){
+  trafficOn=!trafficOn;
+  if(trafficOn){if(!trafficLayer)trafficLayer=new google.maps.TrafficLayer();trafficLayer.setMap(map);speak('Trânsito ativado');toast('🚦 Trânsito ativado')}
+  else{if(trafficLayer)trafficLayer.setMap(null);speak('Trânsito desativado');toast('🚦 Trânsito desativado')}
+  var b=document.getElementById('btn-traffic');
+  if(b){b.style.borderColor=trafficOn?'var(--accent)':'';b.style.color=trafficOn?'var(--accent)':''}
 }
 
 // ─── POI MARKERS: RADARES, POLÍCIA, HOSPITAIS ──────────────────────────────
 var poiMarkers=[];
-var placesService=null;
 
 function fetchPOIs(legs){
   // Clear existing markers
@@ -944,73 +972,41 @@ function fetchPOIs(legs){
   poiMarkers.forEach(function(m){try{if(m.setMap)m.setMap(null);else if(m.map!==undefined)m.map=null}catch(e){}});
   poiMarkers=[];
 
-  // ── 1. Police + Hospitals via Google Maps Places API ──────────────────────
-  // Works from any origin (file://, server, etc.) with our API key
-  if(!placesService)placesService=new google.maps.places.PlacesService(map);
+  // ── 0. Traffic layer ─────────────────────────────────────────────────────
+  if(!trafficLayer)trafficLayer=new google.maps.TrafficLayer();
+  trafficLayer.setMap(map);trafficOn=true;
 
-  // Collect unique search points: every leg midpoint
-  var searchPoints=[];
-  legs.forEach(function(leg){
-    searchPoints.push({
-      lat:(leg.start_location.lat()+leg.end_location.lat())/2,
-      lng:(leg.start_location.lng()+leg.end_location.lng())/2
-    });
-  });
-  // Also add start and end of route
-  if(legs.length){
-    searchPoints.unshift({lat:legs[0].start_location.lat(),lng:legs[0].start_location.lng()});
-    var last=legs[legs.length-1];
-    searchPoints.push({lat:last.end_location.lat(),lng:last.end_location.lng()});
-  }
-
-  // Deduplicate nearby points
-  var seen=[];
-  searchPoints=searchPoints.filter(function(p){
-    for(var i=0;i<seen.length;i++){
-      var d=Math.abs(p.lat-seen[i].lat)+Math.abs(p.lng-seen[i].lng);
-      if(d<0.01)return false;
-    }
-    seen.push(p);return true;
-  });
-
-  // Search radius based on route length
-  var totalDist=0;
-  legs.forEach(function(l){totalDist+=l.distance.value});
-  var radius=Math.min(Math.max(totalDist/legs.length/2,500),3000);
-
-  var types=['police','hospital'];
+  // ── 1. Police + Hospitals via new Places API (searchNearby) ─────────────────
+  var totalDist=0;legs.forEach(function(l){totalDist+=l.distance.value});
+  var radius=Math.min(Math.max(totalDist/legs.length/2,500),2500);
+  var center={lat:legs[0].start_location.lat(),lng:legs[0].start_location.lng()};
   var addedPlaces={};
 
-  searchPoints.forEach(function(pt){
-    types.forEach(function(type){
-      placesService.nearbySearch({
-        location:pt, radius:radius, type:type
-      },function(results,status){
-        if(status!=='OK'&&status!=='ZERO_RESULTS')return;
-        (results||[]).forEach(function(place){
-          if(addedPlaces[place.place_id])return;
-          addedPlaces[place.place_id]=true;
-          var pos={lat:place.geometry.location.lat(),lng:place.geometry.location.lng()};
-          var name=place.name||'';
-          var marker;
-          if(type==='police'){
-            var icon='<circle cx="19" cy="15" r="5" fill="#1565c0"/>'
-              +'<path d="M10 27c0-4.97 4.03-9 9-9s9 4.03 9 9" fill="#1565c0"/>'
-              +'<rect x="16" y="10" width="6" height="2" rx="1" fill="#ffd700"/>'
-              +'<path d="M15 14h8" stroke="white" stroke-width="1" stroke-linecap="round"/>';
-            var svg=pinSVG('#1565c0','#0d47a1',icon,'');
-            marker=makePinMarker(pos,svg,'🚓 '+(name||'Polícia'),50);
-          }else{
-            var icon='<rect x="17" y="12" width="4" height="14" rx="1" fill="#2e7d32"/>'
-              +'<rect x="12" y="17" width="14" height="4" rx="1" fill="#2e7d32"/>';
-            var svg=pinSVG('#2e7d32','#1b5e20',icon,'');
-            marker=makePinMarker(pos,svg,'🏥 '+(name||'Hospital'),60);
-          }
-          if(marker)poiMarkers.push(marker);
+  function searchPOIType(types,emoji,bg,border,pfx,zIdx){
+    google.maps.importLibrary('places').then(function(places){
+      var req={
+        fields:['displayName','location','id'],
+        includedTypes:types,
+        maxResultCount:8,
+        locationRestriction:new google.maps.Circle({
+          center:center, radius:radius
+        })
+      };
+      places.Place.searchNearby(req).then(function(res){
+        (res.places||[]).forEach(function(pl){
+          if(addedPlaces[pl.id])return;
+          addedPlaces[pl.id]=true;
+          var loc=pl.location;
+          var inner='<text x="13" y="14" text-anchor="middle" dominant-baseline="middle" font-size="12">'+emoji+'</text>';
+          var svg=makeIcon(26,bg,border,inner);
+          var m=placeIcon({lat:loc.lat(),lng:loc.lng()},svg,pfx+(pl.displayName||''),zIdx,26);
+          if(m)poiMarkers.push(m);
         });
-      });
-    });
-  });
+      }).catch(function(){});
+    }).catch(function(){});
+  }
+  searchPOIType(['police'],'🚓','#1565c0','#0d47a1','🚓 ',50);
+  searchPOIType(['hospital','clinic'],'🏥','#2e7d32','#1b5e20','🏥 ',60);
 
   // ── 2. Radars via Overpass (only works on HTTPS server, not file://) ────────
   var minLat=99,maxLat=-99,minLng=99,maxLng=-99;
@@ -1040,20 +1036,55 @@ function fetchPOIs(legs){
           +'<circle cx="19" cy="19" r="3" fill="white"/>'
           +'<rect x="25" y="16" width="3" height="6" rx="1" fill="#c62828"/>'
           +'<rect x="17" y="12" width="4" height="3" rx="1" fill="#c62828"/>';
-        var svg=pinSVG('#e53935','#b71c1c',icon,speedLabel);
+        var lbl=speedLabel;
+        var inner='<text x="13" y="12" text-anchor="middle" dominant-baseline="middle" font-size="10">📷</text>'+(lbl?'<text x="13" y="22" text-anchor="middle" dominant-baseline="middle" font-size="7" font-weight="700" fill="white" font-family="Arial">'+lbl+'</text>':'');
+        var svg=makeIcon(26,'#e65100','#bf360c',inner);
         var pos={lat:el.lat,lng:el.lon};
         radarMarkers.push({lat:el.lat,lng:el.lon,speed:maxspd});
-        var m=makePinMarker(pos,svg,'📷 Radar'+(maxspd?' Máx.'+maxspd+'km/h':''),100);
+        var m=placeIcon(pos,svg,'📷 Radar'+(maxspd?' Máx.'+maxspd+'km/h':''),100,26);
         if(m)poiMarkers.push(m);
         radCount++;
       });
       if(radCount)toast('📷 '+radCount+' radar(es) encontrado(s)');
     })
-    .catch(function(){tryOverpass(idx+1)});
+    .catch(function(e){tryOverpass(idx+1)});
   }
   tryOverpass(0);
 }
 
+
+// ─── ALERT BANNER ────────────────────────────────────────────────────────────
+function showAlertBanner(type,title,sub){
+  var el=document.getElementById('alert-banner');if(!el)return;
+  var colors={radar:'#e65100',police:'#1565c0',congestion:'#b71c1c',hospital:'#2e7d32'};
+  var icons={radar:'📷',police:'🚓',congestion:'🚦',hospital:'🏥'};
+  el.style.background=colors[type]||'#555';
+  el.querySelector('.ab-title').textContent=title;
+  el.querySelector('.ab-sub').textContent=sub||'';
+  var ico=el.querySelector('.ab-icon');if(ico)ico.textContent=icons[type]||'⚠️';
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t=setTimeout(function(){el.classList.remove('show')},4500);
+}
+
+// ─── CONGESTIONAMENTO ─────────────────────────────────────────────────────────
+var lastCongestionAlert=0;
+function checkCongestion(kmh){
+  if(!navOn||kmh===null||kmh===undefined)return;
+  var now=Date.now();
+  if(now-lastCongestionAlert<90000)return;
+  if(kmh>=0&&kmh<8){
+    lastCongestionAlert=now;
+    showAlertBanner('congestion','🚦 Trânsito parado','Velocidade muito baixa na via');
+    speak('Atenção, trânsito parado à frente. Considere rota alternativa.');
+  }else if(kmh>=8&&kmh<20){
+    if(now-lastCongestionAlert>120000){
+      lastCongestionAlert=now;
+      showAlertBanner('congestion','🚦 Trânsito lento','Tráfego intenso na via');
+      speak('Trânsito lento na via.');
+    }
+  }
+}
 
 // ─── BEARING CALCULATION ─────────────────────────────────────────────────────
 function calcBearing(from,to){
@@ -1094,6 +1125,40 @@ function updSpeedometer(kmh,acc){
     else if(!limit&&kmh>90)el.classList.add('warn');
   }
 }
+
+
+// ─── ADDRESS PERSISTENCE ─────────────────────────────────────────────────────
+var SAVE_KEY='roterizador_v2';
+function saveAddrs(){
+  try{
+    var o=document.getElementById('origin');
+    var st=stops.map(function(_,i){var e=document.getElementById('stop-'+i);return e?e.value:''});
+    localStorage.setItem(SAVE_KEY,JSON.stringify({origin:o?o.value:'',stops:st,mode:tMode,
+      eco:!!(document.getElementById('eco')&&document.getElementById('eco').checked),ts:Date.now()}));
+  }catch(e){}
+}
+function loadAddrs(){
+  try{
+    var raw=localStorage.getItem(SAVE_KEY);if(!raw)return;
+    var d=JSON.parse(raw);
+    if(!d||Date.now()-d.ts>86400000){localStorage.removeItem(SAVE_KEY);return}
+    var hasData=false;
+    if(d.origin){var o=document.getElementById('origin');if(o){o.value=d.origin;updClr('origin');hasData=true;}}
+    if(d.stops&&d.stops.length){
+      var valid=d.stops.filter(function(s){return s&&s.trim()});
+      if(valid.length){
+        stops=d.stops.length>=2?d.stops:[d.stops[0]||'',d.stops[1]||''];
+        renderStops();
+        d.stops.forEach(function(v,i){var e=document.getElementById('stop-'+i);if(e&&v){e.value=v;updClr('stop-'+i);}});
+        hasData=true;
+      }
+    }
+    if(typeof d.eco==='boolean'){var ec=document.getElementById('eco');if(ec)ec.checked=d.eco;}
+    if(d.mode)setMode(d.mode);
+    if(hasData)toast('📍 Endereços restaurados');
+  }catch(e){}
+}
+function clearAddrs(){try{localStorage.removeItem(SAVE_KEY)}catch(e){}}
 
 // ─── GPS ──────────────────────────────────────────────────────────────────────
 function toggleLive(){liveOn?stopLive():startLive()}
@@ -1162,8 +1227,9 @@ function onGPS(pos){
     var spdEl=document.getElementById('nav-spd');
     if(kmh!==null){spdEl.textContent=kmh;spdEl.classList.toggle('fast',navSteps.length&&kmh>80)}
     else spdEl.textContent='--';
-    // radar check
+    // radar + congestion check
     checkRadars(ll,kmh);
+    checkCongestion(kmh);
   }
 }
 function onGPSErr(e){toast(['','Permissão negada','GPS fraco','Timeout'][e.code]||'Erro GPS');stopLive()}
@@ -1256,7 +1322,8 @@ function stopNav(){
   navOn=false;navSteps=[];navIdx=0;lastSpokenIdx=-1;lastSpokenDist=-1;
   document.getElementById('nav-hud').classList.remove('show');
   var b=document.getElementById('btn-nav');if(b)b.style.display='';
-  hideRadarAlert();rmOvl();
+  document.getElementById('alert-banner').classList.remove('show');
+  rmOvl();
   // reset view to dark road map  headingUpMode=false;
   var bv=document.getElementById('btn-view');if(bv){bv.textContent='🧭';bv.classList.remove('on')}
   map.setHeading(0);
@@ -1604,30 +1671,38 @@ function toggleVoice(){
 }
 
 // ─── RADARS CHECK ────────────────────────────────────────────────────────────
+var _lastPoliceAlert=0;
 function checkRadars(ll,kmh){
-  if(!radarMarkers.length)return;
-  var nearest=null,nearestDist=9999;
-  radarMarkers.forEach(function(r){
-    var d=google.maps.geometry.spherical.computeDistanceBetween(ll,new google.maps.LatLng(r.lat,r.lng));
-    if(d<nearestDist){nearestDist=d;nearest=r}
-  });
-  if(nearest&&nearestDist<300){
-    showRadarAlert(nearest,nearestDist);
-    if(kmh!=null&&kmh>nearest.speed&&!radarAlertActive){
-      speak('Atenção! Radar a '+(Math.round(nearestDist/10)*10)+' metros. Velocidade máxima '+nearest.speed+' quilômetros por hora.');
-      radarAlertActive=true;
-    }
-  }else{
-    hideRadarAlert();radarAlertActive=false;
+  if(radarMarkers.length){
+    var nearest=null,nearestDist=9999;
+    radarMarkers.forEach(function(r){
+      var d=google.maps.geometry.spherical.computeDistanceBetween(ll,new google.maps.LatLng(r.lat,r.lng));
+      if(d<nearestDist){nearestDist=d;nearest=r}
+    });
+    if(nearest&&nearestDist<400){
+      var dm=Math.round(nearestDist/10)*10;
+      showAlertBanner('radar','📷 RADAR — '+dm+'m',nearest.speed?'Velocidade máxima: '+nearest.speed+' km/h':'');
+      if(!radarAlertActive){
+        radarAlertActive=true;
+        speak('Atenção! Radar a '+dm+' metros.'+(nearest.speed?' Velocidade máxima '+nearest.speed+' quilômetros por hora.':''));
+      }
+    }else{radarAlertActive=false}
+  }
+  // Police proximity
+  var now=Date.now();
+  if(now-_lastPoliceAlert>60000){
+    poiMarkers.forEach(function(m){
+      if(!m.title||m.title.indexOf('Polícia')===-1)return;
+      var mpos=m.getPosition();if(!mpos)return;
+      var d=google.maps.geometry.spherical.computeDistanceBetween(ll,mpos);
+      if(d<300){
+        showAlertBanner('police','🚓 Polícia — '+Math.round(d)+'m','Reduza a velocidade');
+        speak('Atenção! Posto policial a '+Math.round(d)+' metros');
+        _lastPoliceAlert=now;
+      }
+    });
   }
 }
-function showRadarAlert(r,dist){
-  var el=document.getElementById('radar-alert');
-  el.classList.add('show');
-  document.getElementById('radar-txt').textContent='📷 RADAR — '+Math.round(dist)+'m';
-  document.getElementById('radar-spd').textContent=r.speed?('Máx. '+r.speed+' km/h'):'';
-}
-function hideRadarAlert(){document.getElementById('radar-alert').classList.remove('show')}
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function showErr(m){var e=document.getElementById('err');e.textContent=m;e.classList.add('show')}
